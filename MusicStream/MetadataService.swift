@@ -36,37 +36,28 @@ struct OnlineMusicResult: Identifiable {
     let duration: Int
 }
 
-struct SCTrack: Codable {
-    let id: Int
-    let title: String
-    let user: SCUser?
-    let artworkUrl: String?
+struct PipedSearchItem: Codable {
+    let url: String?
+    let type: String?
+    let title: String?
+    let thumbnail: String?
+    let uploaderName: String?
     let duration: Int?
-    let permalinkUrl: String?
-
-    enum CodingKeys: String, CodingKey {
-        case id, title, user, duration
-        case artworkUrl = "artwork_url"
-        case permalinkUrl = "permalink_url"
-    }
 }
 
-struct SCUser: Codable {
-    let username: String?
+struct PipedSearchResponse: Codable {
+    let items: [PipedSearchItem]?
 }
 
-struct SCSearchResponse: Codable {
-    let collection: [SCTrack]?
+struct PipedAudioStream: Codable {
+    let url: String?
+    let format: String?
+    let bitrate: Int?
 }
 
-struct SCStreamData: Codable {
-    let httpMp3Url: String?
-    let hlsMp3Url: String?
-
-    enum CodingKeys: String, CodingKey {
-        case httpMp3Url = "http_mp3_128_url"
-        case hlsMp3Url = "hls_mp3_128_url"
-    }
+struct PipedStreamResponse: Codable {
+    let audioStreams: [PipedAudioStream]?
+    let error: String?
 }
 
 class MetadataService {
@@ -77,12 +68,10 @@ class MetadataService {
         return URLSession(configuration: config)
     }()
 
-    private let scBase = "https://api-v2.soundcloud.com"
-    private var scClientID: String?
-    private let fallbackClientIDs = [
-        "a3e059563d7fd3372b49b37f00a00bcf",
-        "iZIs9mchVcX5lhVRyQGGAYlNPVldzAoX",
-        "2t9loNQH90kzJcsFCODdigxfp325aq4z"
+    private let pipedInstances = [
+        "https://api.piped.private.coffee",
+        "https://pipedapi.kavin.rocks",
+        "https://pipedapi-libre.kavin.rocks"
     ]
 
     func readLocalMetadata(from url: URL) -> (title: String, artist: String, album: String, duration: TimeInterval, artworkData: Data?) {
@@ -150,67 +139,24 @@ class MetadataService {
         return nil
     }
 
-    private func ensureClientID() async -> String? {
-        if let existing = scClientID { return existing }
-        for fallback in fallbackClientIDs {
-            if await verifyClientID(fallback) {
-                scClientID = fallback
-                return fallback
-            }
-        }
-        guard let htmlURL = URL(string: "https://soundcloud.com/"),
-              let (data, _) = try? await URLSession.shared.data(from: htmlURL),
-              let html = String(data: data, encoding: .utf8) else { return nil }
-        let patterns = [
-            "client_id\":\"",
-            "client_id="
-        ]
-        for pattern in patterns {
-            if let range = html.range(of: pattern) {
-                let start = range.upperBound
-                if let end = html[start...].firstIndex(of: "\"") ?? html[start...].firstIndex(of: "&") {
-                    let cid = String(html[start..<end])
-                    if !cid.isEmpty && cid.count < 64 {
-                        await verifyClientID(cid)
-                        scClientID = cid
-                        return cid
-                    }
-                }
-            }
-        }
-        return nil
-    }
-
-    private func verifyClientID(_ cid: String) async -> Bool {
-        guard let url = URL(string: "\(scBase)/search/tracks?q=test&client_id=\(cid)&limit=1") else { return false }
-        do {
-            let (data, _) = try await session.data(from: url)
-            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               json["collection"] != nil {
-                return true
-            }
-            return false
-        } catch {
-            return false
-        }
-    }
-
-    func searchSoundCloud(query: String) async -> [OnlineMusicResult] {
-        guard let cid = await ensureClientID() else { return [] }
+    private func searchPiped(instance: String, query: String) async -> [OnlineMusicResult] {
         guard let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return [] }
-        guard let url = URL(string: "\(scBase)/search/tracks?q=\(encoded)&client_id=\(cid)&limit=20&app_locale=en") else { return [] }
+        guard let url = URL(string: "\(instance)/search?q=\(encoded)&filter=music_songs") else { return [] }
         do {
             let (data, _) = try await session.data(from: url)
-            let response = try JSONDecoder().decode(SCSearchResponse.self, from: data)
-            return response.collection?.compactMap { track in
-                let art = track.artworkUrl?
-                    .replacingOccurrences(of: "-large.", with: "-t500x500.")
+            let response = try JSONDecoder().decode(PipedSearchResponse.self, from: data)
+            return response.items?.compactMap { item in
+                guard let url = item.url,
+                      let vid = url.components(separatedBy: "?v=").last?.components(separatedBy: "&").first
+                else { return nil }
+                let thumb = item.thumbnail?
+                    .replacingOccurrences(of: "=w120-h120", with: "=w600-h600")
                 return OnlineMusicResult(
-                    id: "\(track.id)",
-                    title: track.title,
-                    artist: track.user?.username ?? "Unbekannt",
-                    thumbnail: art,
-                    duration: (track.duration ?? 0) / 1000
+                    id: vid,
+                    title: item.title ?? "Unbekannt",
+                    artist: item.uploaderName ?? "Unbekannt",
+                    thumbnail: thumb,
+                    duration: item.duration ?? 0
                 )
             } ?? []
         } catch {
@@ -218,16 +164,36 @@ class MetadataService {
         }
     }
 
-    func getSoundCloudStreamURL(trackId: String) async -> String? {
-        guard let cid = await ensureClientID() else { return nil }
-        guard let url = URL(string: "\(scBase)/tracks/\(trackId)/streams?client_id=\(cid)") else { return nil }
+    private func streamPiped(instance: String, videoId: String) async -> String? {
+        guard let url = URL(string: "\(instance)/streams/\(videoId)") else { return nil }
         do {
             let (data, _) = try await session.data(from: url)
-            let response = try JSONDecoder().decode(SCStreamData.self, from: data)
-            return response.httpMp3Url ?? response.hlsMp3Url
+            let response = try JSONDecoder().decode(PipedStreamResponse.self, from: data)
+            if response.error != nil { return nil }
+            return response.audioStreams?
+                .sorted { ($0.bitrate ?? 0) > ($1.bitrate ?? 0) }
+                .first?.url
         } catch {
             return nil
         }
+    }
+
+    func searchOnline(query: String) async -> [OnlineMusicResult] {
+        guard let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return [] }
+        for instance in pipedInstances {
+            let results = await searchPiped(instance: instance, query: query)
+            if !results.isEmpty { return results }
+        }
+        return []
+    }
+
+    func getAudioStreamURL(videoId: String) async -> String? {
+        for instance in pipedInstances {
+            if let url = await streamPiped(instance: instance, videoId: videoId) {
+                return url
+            }
+        }
+        return nil
     }
 
     func downloadAudio(from url: String) async -> Data? {
