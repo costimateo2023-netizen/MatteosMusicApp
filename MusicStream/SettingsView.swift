@@ -13,7 +13,6 @@ struct SettingsView: View {
                     Section("Metadaten-Anbieter") {
                         Picker("Anbieter", selection: $provider) {
                             Text("MusicBrainz").tag("musicbrainz")
-                            Text("iTunes").tag("itunes")
                         }
                         .pickerStyle(.menu)
                         Text("Wird beim Abrufen von Song-Metadaten und Album-Covern verwendet.")
@@ -37,7 +36,7 @@ struct SettingsView: View {
                         HStack {
                             Text("Version")
                             Spacer()
-                            Text("1.0")
+                            Text("beta--0.0.01.2")
                                 .foregroundColor(.msSecondary)
                         }
                         HStack {

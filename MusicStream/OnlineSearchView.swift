@@ -3,9 +3,9 @@ import SwiftUI
 struct OnlineSearchView: View {
     @EnvironmentObject var libraryVM: LibraryViewModel
     @State private var searchQuery = ""
-    @State private var results: [iTunesResult] = []
+    @State private var results: [OnlineMusicResult] = []
     @State private var isSearching = false
-    @State private var downloadingIDs = Set<Int>()
+    @State private var downloadingIDs = Set<String>()
 
     private let metadata = MetadataService.shared
 
@@ -18,7 +18,7 @@ struct OnlineSearchView: View {
                     HStack {
                         Image(systemName: "magnifyingglass")
                             .foregroundColor(.msSecondary)
-                        TextField("Song oder K\u00fcnstler suchen", text: $searchQuery)
+                        TextField("Song oder K\u{00FC}nstler suchen", text: $searchQuery)
                             .foregroundColor(.white)
                             .autocapitalization(.none)
                             .disableAutocorrection(true)
@@ -55,15 +55,15 @@ struct OnlineSearchView: View {
                             Image(systemName: "music.note.list")
                                 .font(.system(size: 50))
                                 .foregroundColor(.msAccent.opacity(0.4))
-                            Text("Suche nach Songs aus dem iTunes-Store")
+                            Text("Suche nach Songs auf YouTube Music")
                                 .foregroundColor(.msSecondary)
                         }
                         Spacer()
                     } else {
                         ScrollView {
                             LazyVStack(spacing: 0) {
-                                ForEach(results, id: \.trackId) { track in
-                                    OnlineTrackRow(track: track, isDownloading: downloadingIDs.contains(track.trackId ?? 0)) {
+                                ForEach(results) { track in
+                                    OnlineTrackRow(track: track, isDownloading: downloadingIDs.contains(track.id)) {
                                         download(track)
                                     }
                                 }
@@ -82,7 +82,7 @@ struct OnlineSearchView: View {
         isSearching = true
         results = []
         Task {
-            let tracks = await metadata.searchTracks(query: searchQuery)
+            let tracks = await metadata.searchOnline(query: searchQuery)
             await MainActor.run {
                 results = tracks
                 isSearching = false
@@ -90,44 +90,44 @@ struct OnlineSearchView: View {
         }
     }
 
-    private func download(_ track: iTunesResult) {
-        guard let tid = track.trackId, let previewUrl = track.previewUrl else { return }
-        downloadingIDs.insert(tid)
+    private func download(_ track: OnlineMusicResult) {
+        downloadingIDs.insert(track.id)
         Task {
-            let audioData = await metadata.downloadPreview(url: previewUrl)
+            guard let audioUrl = await metadata.getAudioStreamURL(videoId: track.id) else {
+                await MainActor.run { downloadingIDs.remove(track.id) }
+                return
+            }
+            let audioData = await metadata.downloadAudio(from: audioUrl)
             let artworkData: Data?
-            if let artUrl = track.artworkUrl100 {
-                let highRes = artUrl.replacingOccurrences(of: "100x100", with: "600x600")
-                artworkData = try? await URLSession.shared.data(from: URL(string: highRes)!).0
+            if let artUrl = track.thumbnail, let url = URL(string: artUrl) {
+                artworkData = try? await URLSession.shared.data(from: url).0
             } else {
                 artworkData = nil
             }
             await MainActor.run {
                 libraryVM.importOnlineTrack(
-                    title: track.trackName ?? "Unbekannt",
-                    artist: track.artistName ?? "Unbekannt",
-                    album: track.collectionName ?? "Unbekannt",
+                    title: track.title,
+                    artist: track.artist,
+                    album: "YouTube Music",
                     audioData: audioData,
-                    artworkData: artworkData
+                    artworkData: artworkData,
+                    duration: TimeInterval(track.duration)
                 )
-                downloadingIDs.remove(tid)
+                downloadingIDs.remove(track.id)
             }
         }
     }
 }
 
 struct OnlineTrackRow: View {
-    let track: iTunesResult
+    let track: OnlineMusicResult
     let isDownloading: Bool
     let onDownload: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
             Group {
-                if
-                    let url = track.artworkUrl100,
-                    let urlStr = URL(string: url)
-                {
+                if let url = track.thumbnail, let urlStr = URL(string: url) {
                     AsyncImage(url: urlStr) { phase in
                         if let image = phase.image {
                             image.resizable().scaledToFill()
@@ -151,11 +151,11 @@ struct OnlineTrackRow: View {
             .cornerRadius(8)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(track.trackName ?? "Unbekannt")
+                Text(track.title)
                     .font(.system(size: 15, weight: .medium))
                     .foregroundColor(.white)
                     .lineLimit(1)
-                Text(track.artistName ?? "")
+                Text(track.artist)
                     .font(.system(size: 12))
                     .foregroundColor(.msSecondary)
                     .lineLimit(1)
