@@ -197,11 +197,13 @@ class MetadataService {
             let response = try JSONDecoder().decode(PipedStreamResponse.self, from: data)
             if response.error != nil { return nil }
             if let audioUrl = response.audioStreams?
-                .sorted { ($0.bitrate ?? 0) > ($1.bitrate ?? 0) }
-                .first?.url { return audioUrl }
+                .sorted { $0.bitrate ?? 0 > $1.bitrate ?? 0 }
+                .first?.url {
+                return audioUrl
+            }
             return response.videoStreams?
                 .filter { $0.videoOnly != true && $0.url?.hasPrefix("https") == true }
-                .sorted { ($0.bitrate ?? 0) > ($1.bitrate ?? 0) }
+                .sorted { $0.bitrate ?? 0 > $1.bitrate ?? 0 }
                 .first?.url
         } catch {
             return nil
@@ -283,7 +285,7 @@ class MetadataService {
     }
 
     func searchOnline(query: String) async -> [OnlineMusicResult] {
-        guard let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return [] }
+        guard !query.trimmingCharacters(in: .whitespaces).isEmpty else { return [] }
         for instance in pipedInstances {
             let results = await searchPiped(instance: instance, query: query)
             if !results.isEmpty { return results }

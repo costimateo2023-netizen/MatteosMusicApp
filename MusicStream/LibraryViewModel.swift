@@ -50,7 +50,7 @@ class LibraryViewModel: ObservableObject {
         }
     }
 
-    func importOnlineTrack(title: String, artist: String, album: String, audioData: Data?, artworkData: Data?) {
+    func importOnlineTrack(title: String, artist: String, album: String, audioData: Data?, artworkData: Data?, duration: TimeInterval = 30) {
         let fileName = "\(title)-\(artist).m4a"
             .replacingOccurrences(of: "[^a-zA-Z0-9]", with: "_", options: .regularExpression)
         let localURL = persistence.musicDirectory.appendingPathComponent(fileName)
@@ -62,7 +62,7 @@ class LibraryViewModel: ObservableObject {
                 title: title,
                 artist: artist,
                 album: album,
-                duration: 30,
+                duration: duration,
                 fileURL: localURL,
                 artworkData: artworkData,
                 metadataFetched: true
