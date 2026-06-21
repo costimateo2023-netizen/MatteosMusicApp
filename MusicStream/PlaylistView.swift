@@ -4,6 +4,7 @@ struct PlaylistView: View {
     @EnvironmentObject var libraryVM: LibraryViewModel
     @State private var showCreate = false
     @State private var newName = ""
+    @State private var showSettings = false
 
     var body: some View {
         NavigationStack {
@@ -44,12 +45,20 @@ struct PlaylistView: View {
             }
             .navigationTitle("Playlists")
             .toolbar {
-                Button {
-                    showCreate = true
-                } label: {
-                    Image(systemName: "plus.circle.fill")
-                        .foregroundColor(.msAccent)
-                        .font(.title2)
+                ToolbarItemGroup(placement: .navigationBarTrailing) {
+                    Button {
+                        showCreate = true
+                    } label: {
+                        Image(systemName: "plus.circle.fill")
+                            .foregroundColor(.msAccent)
+                            .font(.title2)
+                    }
+                    Button {
+                        showSettings = true
+                    } label: {
+                        Image(systemName: "gearshape.fill")
+                            .foregroundColor(.msSecondary)
+                    }
                 }
             }
             .alert("Neue Playlist", isPresented: $showCreate) {
@@ -61,6 +70,9 @@ struct PlaylistView: View {
                     }
                 }
                 Button("Abbrechen", role: .cancel) { newName = "" }
+            }
+            .sheet(isPresented: $showSettings) {
+                SettingsView()
             }
         }
     }
