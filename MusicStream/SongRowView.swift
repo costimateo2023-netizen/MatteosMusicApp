@@ -3,12 +3,12 @@ import SwiftUI
 struct SongRowView: View {
     let song: Song
     @EnvironmentObject var playerVM: MusicPlayerViewModel
+    @EnvironmentObject var libraryVM: LibraryViewModel
 
     var isCurrentSong: Bool { playerVM.currentSong?.id == song.id }
 
     var body: some View {
         HStack(spacing: 12) {
-            // Artwork
             Group {
                 if let artwork = song.artwork {
                     Image(uiImage: artwork)
@@ -29,7 +29,6 @@ struct SongRowView: View {
                     .strokeBorder(Color.msAccent, lineWidth: 2) : nil
             )
 
-            // Info
             VStack(alignment: .leading, spacing: 3) {
                 Text(song.title)
                     .font(.system(size: 15, weight: isCurrentSong ? .bold : .medium))
@@ -47,7 +46,19 @@ struct SongRowView: View {
 
             Spacer()
 
-            // Duration + playing indicator
+            Menu {
+                Button {
+                    libraryVM.deleteSong(song)
+                } label: {
+                    Label("Lösch dieses Lied", systemImage: "trash")
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .foregroundColor(.msSecondary)
+                    .font(.title3)
+                    .padding(.leading, 8)
+            }
+
             VStack(alignment: .trailing, spacing: 4) {
                 if isCurrentSong && playerVM.isPlaying {
                     PlayingBarsView()
