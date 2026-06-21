@@ -51,19 +51,26 @@ class MetadataService {
 
     // Fetch extended metadata from iTunes Search API (requires internet)
     func fetchOnlineMetadata(title: String, artist: String) async -> iTunesResult? {
-        let query = "\(title) \(artist)"
-            .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
-        let urlString = "https://itunes.apple.com/search?term=\(query)&media=music&limit=5"
-        guard let url = URL(string: urlString) else { return nil }
-
-        do {
-            let (data, _) = try await URLSession.shared.data(from: url)
-            let response = try JSONDecoder().decode(iTunesResponse.self, from: data)
-            return response.results.first
-        } catch {
-            print("iTunes metadata error: \(error)")
-            return nil
+        // Try title + artist first, then fall back to title only
+        let queries = [
+            "\(title) \(artist)",
+            title
+        ]
+        for query in queries {
+            guard let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { continue }
+            let urlString = "https://itunes.apple.com/search?term=\(encoded)&media=music&entity=song&limit=3"
+            guard let url = URL(string: urlString) else { continue }
+            do {
+                let (data, _) = try await URLSession.shared.data(from: url)
+                let response = try JSONDecoder().decode(iTunesResponse.self, from: data)
+                if let result = response.results.first {
+                    return result
+                }
+            } catch {
+                continue
+            }
         }
+        return nil
     }
 
     // Download artwork from URL
