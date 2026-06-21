@@ -51,11 +51,13 @@ class LibraryViewModel: ObservableObject {
     }
 
     func fetchMetadataOnline(for song: Song) async {
-        guard var s = songs.first(where: { $0.id == song.id }) else { return }
-        await metadata.enrichSong(&s)
+        guard let s = songs.first(where: { $0.id == song.id }) else { return }
+        var songToUpdate = s
+        await metadata.enrichSong(&songToUpdate)
+        let updatedSong = songToUpdate
         DispatchQueue.main.async {
             if let idx = self.songs.firstIndex(where: { $0.id == song.id }) {
-                self.songs[idx] = s
+                self.songs[idx] = updatedSong
                 self.persistence.saveSongs(self.songs)
             }
         }

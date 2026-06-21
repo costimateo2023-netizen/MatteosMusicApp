@@ -39,7 +39,7 @@ class MetadataService {
     func readLocalMetadata(from url: URL) -> (title: String, artist: String, album: String, duration: TimeInterval, artworkData: Data?) {
         let asset = AVAsset(url: url)
         var title = url.deletingPathExtension().lastPathComponent
-        var artist = "Unbekannter K\u00fcnstler"
+        var artist = "Unbekannter Künstler"
         var album = "Unbekanntes Album"
         var artworkData: Data? = nil
 
