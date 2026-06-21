@@ -1,0 +1,20 @@
+name: Build IPA
+on: [push, workflow_dispatch]
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          xcodebuild -project MusicStream.xcodeproj -scheme MusicStream \
+            -configuration Release -sdk iphoneos \
+            -derivedDataPath ${{ runner.temp }}/dd \
+            CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO
+      - run: |
+          mkdir -p ${{ runner.temp }}/ipa/Payload
+          cp -R ${{ runner.temp }}/dd/Build/Products/Release-iphoneos/MatteosMusic.app ${{ runner.temp }}/ipa/Payload/
+          cd ${{ runner.temp }}/ipa && zip -r MatteosMusic.ipa Payload/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MatteosMusic
+          path: ${{ runner.temp }}/ipa/*.ipa
