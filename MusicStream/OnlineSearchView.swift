@@ -3,7 +3,7 @@ import SwiftUI
 struct OnlineSearchView: View {
     @EnvironmentObject var libraryVM: LibraryViewModel
     @State private var searchQuery = ""
-    @State private var results: [YTMusicResult] = []
+    @State private var results: [OnlineMusicResult] = []
     @State private var isSearching = false
     @State private var downloadingIDs = Set<String>()
 
@@ -55,7 +55,7 @@ struct OnlineSearchView: View {
                             Image(systemName: "music.note.list")
                                 .font(.system(size: 50))
                                 .foregroundColor(.msAccent.opacity(0.4))
-                            Text("Suche nach Songs von YouTube Music")
+                            Text("Suche nach Songs auf SoundCloud")
                                 .foregroundColor(.msSecondary)
                         }
                         Spacer()
@@ -82,7 +82,7 @@ struct OnlineSearchView: View {
         isSearching = true
         results = []
         Task {
-            let tracks = await metadata.searchYouTube(query: searchQuery)
+            let tracks = await metadata.searchSoundCloud(query: searchQuery)
             await MainActor.run {
                 results = tracks
                 isSearching = false
@@ -90,10 +90,10 @@ struct OnlineSearchView: View {
         }
     }
 
-    private func download(_ track: YTMusicResult) {
+    private func download(_ track: OnlineMusicResult) {
         downloadingIDs.insert(track.id)
         Task {
-            guard let audioUrl = await metadata.getAudioStreamURL(videoId: track.id) else {
+            guard let audioUrl = await metadata.getSoundCloudStreamURL(trackId: track.id) else {
                 await MainActor.run { downloadingIDs.remove(track.id) }
                 return
             }
@@ -108,7 +108,7 @@ struct OnlineSearchView: View {
                 libraryVM.importOnlineTrack(
                     title: track.title,
                     artist: track.artist,
-                    album: "YouTube Music",
+                    album: "SoundCloud",
                     audioData: audioData,
                     artworkData: artworkData,
                     duration: TimeInterval(track.duration)
@@ -120,7 +120,7 @@ struct OnlineSearchView: View {
 }
 
 struct OnlineTrackRow: View {
-    let track: YTMusicResult
+    let track: OnlineMusicResult
     let isDownloading: Bool
     let onDownload: () -> Void
 

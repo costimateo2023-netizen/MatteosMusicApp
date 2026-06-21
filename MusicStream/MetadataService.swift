@@ -28,7 +28,7 @@ struct MBResponse: Codable {
     let recordings: [MBRecording]?
 }
 
-struct YTMusicResult: Identifiable {
+struct OnlineMusicResult: Identifiable {
     let id: String
     let title: String
     let artist: String
@@ -36,27 +36,37 @@ struct YTMusicResult: Identifiable {
     let duration: Int
 }
 
-struct YTSearchItem: Codable {
-    let type: String
+struct SCTrack: Codable {
+    let id: Int
     let title: String
-    let url: String?
-    let uploaderName: String?
-    let thumbnail: String?
+    let user: SCUser?
+    let artworkUrl: String?
     let duration: Int?
+    let permalinkUrl: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, user, duration
+        case artworkUrl = "artwork_url"
+        case permalinkUrl = "permalink_url"
+    }
 }
 
-struct YTSearchResponse: Codable {
-    let items: [YTSearchItem]?
+struct SCUser: Codable {
+    let username: String?
 }
 
-struct YTAudioStream: Codable {
-    let url: String?
-    let format: String?
-    let bitrate: Int?
+struct SCSearchResponse: Codable {
+    let collection: [SCTrack]?
 }
 
-struct YTStreamResponse: Codable {
-    let audioStreams: [YTAudioStream]?
+struct SCStreamData: Codable {
+    let httpMp3Url: String?
+    let hlsMp3Url: String?
+
+    enum CodingKeys: String, CodingKey {
+        case httpMp3Url = "http_mp3_128_url"
+        case hlsMp3Url = "hls_mp3_128_url"
+    }
 }
 
 class MetadataService {
@@ -67,7 +77,13 @@ class MetadataService {
         return URLSession(configuration: config)
     }()
 
-    private let pipedBase = "https://pipedapi.kavin.rocks"
+    private let scBase = "https://api-v2.soundcloud.com"
+    private var scClientID: String?
+    private let fallbackClientIDs = [
+        "a3e059563d7fd3372b49b37f00a00bcf",
+        "iZIs9mchVcX5lhVRyQGGAYlNPVldzAoX",
+        "2t9loNQH90kzJcsFCODdigxfp325aq4z"
+    ]
 
     func readLocalMetadata(from url: URL) -> (title: String, artist: String, album: String, duration: TimeInterval, artworkData: Data?) {
         let asset = AVAsset(url: url)
@@ -134,23 +150,67 @@ class MetadataService {
         return nil
     }
 
-    func searchYouTube(query: String) async -> [YTMusicResult] {
-        guard let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return [] }
-        guard let url = URL(string: "\(pipedBase)/search?q=\(encoded)&filter=videos") else { return [] }
+    private func ensureClientID() async -> String? {
+        if let existing = scClientID { return existing }
+        for fallback in fallbackClientIDs {
+            if await verifyClientID(fallback) {
+                scClientID = fallback
+                return fallback
+            }
+        }
+        guard let htmlURL = URL(string: "https://soundcloud.com/"),
+              let (data, _) = try? await URLSession.shared.data(from: htmlURL),
+              let html = String(data: data, encoding: .utf8) else { return nil }
+        let patterns = [
+            "client_id\":\"",
+            "client_id="
+        ]
+        for pattern in patterns {
+            if let range = html.range(of: pattern) {
+                let start = range.upperBound
+                if let end = html[start...].firstIndex(of: "\"") ?? html[start...].firstIndex(of: "&") {
+                    let cid = String(html[start..<end])
+                    if !cid.isEmpty && cid.count < 64 {
+                        await verifyClientID(cid)
+                        scClientID = cid
+                        return cid
+                    }
+                }
+            }
+        }
+        return nil
+    }
+
+    private func verifyClientID(_ cid: String) async -> Bool {
+        guard let url = URL(string: "\(scBase)/search/tracks?q=test&client_id=\(cid)&limit=1") else { return false }
         do {
             let (data, _) = try await session.data(from: url)
-            let response = try JSONDecoder().decode(YTSearchResponse.self, from: data)
-            return response.items?.compactMap { item in
-                guard item.type == "video",
-                      let url = item.url,
-                      let vid = url.components(separatedBy: "?v=").last?.components(separatedBy: "&").first
-                else { return nil }
-                return YTMusicResult(
-                    id: vid,
-                    title: item.title,
-                    artist: item.uploaderName ?? "Unbekannt",
-                    thumbnail: item.thumbnail,
-                    duration: item.duration ?? 0
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               json["collection"] != nil {
+                return true
+            }
+            return false
+        } catch {
+            return false
+        }
+    }
+
+    func searchSoundCloud(query: String) async -> [OnlineMusicResult] {
+        guard let cid = await ensureClientID() else { return [] }
+        guard let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return [] }
+        guard let url = URL(string: "\(scBase)/search/tracks?q=\(encoded)&client_id=\(cid)&limit=20&app_locale=en") else { return [] }
+        do {
+            let (data, _) = try await session.data(from: url)
+            let response = try JSONDecoder().decode(SCSearchResponse.self, from: data)
+            return response.collection?.compactMap { track in
+                let art = track.artworkUrl?
+                    .replacingOccurrences(of: "-large.", with: "-t500x500.")
+                return OnlineMusicResult(
+                    id: "\(track.id)",
+                    title: track.title,
+                    artist: track.user?.username ?? "Unbekannt",
+                    thumbnail: art,
+                    duration: (track.duration ?? 0) / 1000
                 )
             } ?? []
         } catch {
@@ -158,14 +218,13 @@ class MetadataService {
         }
     }
 
-    func getAudioStreamURL(videoId: String) async -> String? {
-        guard let url = URL(string: "\(pipedBase)/streams/\(videoId)") else { return nil }
+    func getSoundCloudStreamURL(trackId: String) async -> String? {
+        guard let cid = await ensureClientID() else { return nil }
+        guard let url = URL(string: "\(scBase)/tracks/\(trackId)/streams?client_id=\(cid)") else { return nil }
         do {
             let (data, _) = try await session.data(from: url)
-            let response = try JSONDecoder().decode(YTStreamResponse.self, from: data)
-            return response.audioStreams?
-                .sorted { ($0.bitrate ?? 0) > ($1.bitrate ?? 0) }
-                .first?.url
+            let response = try JSONDecoder().decode(SCStreamData.self, from: data)
+            return response.httpMp3Url ?? response.hlsMp3Url
         } catch {
             return nil
         }
