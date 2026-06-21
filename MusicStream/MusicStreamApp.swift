@@ -7,10 +7,9 @@ struct MusicStreamApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            SplashScreen()
                 .environmentObject(libraryVM)
                 .environmentObject(playerVM)
-                .preferredColorScheme(.dark)
         }
     }
 }
