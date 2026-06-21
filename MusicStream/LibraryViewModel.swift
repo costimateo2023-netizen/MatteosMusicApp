@@ -107,6 +107,12 @@ class LibraryViewModel: ObservableObject {
         persistence.savePlaylists(playlists)
     }
 
+    func updatePlaylistCover(_ playlist: Playlist, imageData: Data?) {
+        guard let idx = playlists.firstIndex(where: { $0.id == playlist.id }) else { return }
+        playlists[idx].coverImageData = imageData
+        persistence.savePlaylists(playlists)
+    }
+
     func songs(for playlist: Playlist) -> [Song] {
         playlist.songIDs.compactMap { id in songs.first { $0.id == id } }
     }

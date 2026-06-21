@@ -1,10 +1,12 @@
 import SwiftUI
+import PhotosUI
 
 struct PlaylistDetailView: View {
     let playlist: Playlist
     @EnvironmentObject var libraryVM: LibraryViewModel
     @EnvironmentObject var playerVM: MusicPlayerViewModel
     @State private var showAddSongs = false
+    @State private var photoItem: PhotosPickerItem?
 
     var songs: [Song] { libraryVM.songs(for: playlist) }
 
@@ -15,7 +17,7 @@ struct PlaylistDetailView: View {
             ScrollView {
                 VStack(spacing: 0) {
                     // Header
-                    PlaylistHeaderView(playlist: playlist, songs: songs)
+                    PlaylistHeaderView(playlist: playlist, songs: songs, photoItem: $photoItem)
 
                     // Play All Button
                     if !songs.isEmpty {
@@ -76,32 +78,72 @@ struct PlaylistDetailView: View {
         .sheet(isPresented: $showAddSongs) {
             AddSongsView(playlist: playlist)
         }
+        .onChange(of: photoItem) { _, newItem in
+            Task {
+                guard let data = try? await newItem?.loadTransferable(type: Data.self) else { return }
+                await MainActor.run {
+                    libraryVM.updatePlaylistCover(playlist, imageData: data)
+                }
+            }
+        }
     }
 }
 
 struct PlaylistHeaderView: View {
     let playlist: Playlist
     let songs: [Song]
+    @Binding var photoItem: PhotosPickerItem?
+    @EnvironmentObject var libraryVM: LibraryViewModel
 
     var artworkSong: Song? { songs.first(where: { $0.artwork != nil }) }
 
     var body: some View {
         VStack(spacing: 12) {
-            if let art = artworkSong?.artwork {
-                Image(uiImage: art)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: 180, height: 180)
-                    .cornerRadius(16)
-                    .shadow(color: .black.opacity(0.4), radius: 20)
-            } else {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 16)
-                        .fill(Color.msCard)
+            PhotosPicker(selection: $photoItem, matching: .images) {
+                if let data = playlist.coverImageData, let uiImage = UIImage(data: data) {
+                    Image(uiImage: uiImage)
+                        .resizable()
+                        .scaledToFill()
                         .frame(width: 180, height: 180)
-                    Image(systemName: "music.note.list")
-                        .font(.system(size: 60))
-                        .foregroundColor(.msAccent.opacity(0.5))
+                        .cornerRadius(16)
+                        .shadow(color: .black.opacity(0.4), radius: 20)
+                        .overlay(alignment: .bottomTrailing) {
+                            Image(systemName: "pencil.circle.fill")
+                                .font(.title2)
+                                .foregroundColor(.msAccent)
+                                .background(Color.black.opacity(0.6).clipShape(Circle()))
+                                .offset(x: 4, y: 4)
+                        }
+                } else if let art = artworkSong?.artwork {
+                    Image(uiImage: art)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 180, height: 180)
+                        .cornerRadius(16)
+                        .shadow(color: .black.opacity(0.4), radius: 20)
+                        .overlay(alignment: .bottomTrailing) {
+                            Image(systemName: "pencil.circle.fill")
+                                .font(.title2)
+                                .foregroundColor(.msAccent)
+                                .background(Color.black.opacity(0.6).clipShape(Circle()))
+                                .offset(x: 4, y: 4)
+                        }
+                } else {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 16)
+                            .fill(Color.msCard)
+                            .frame(width: 180, height: 180)
+                        Image(systemName: "music.note.list")
+                            .font(.system(size: 60))
+                            .foregroundColor(.msAccent.opacity(0.5))
+                    }
+                    .overlay(alignment: .bottomTrailing) {
+                        Image(systemName: "pencil.circle.fill")
+                            .font(.title2)
+                            .foregroundColor(.msAccent)
+                            .background(Color.black.opacity(0.6).clipShape(Circle()))
+                            .offset(x: 4, y: 4)
+                    }
                 }
             }
             Text("\(songs.count) Songs")

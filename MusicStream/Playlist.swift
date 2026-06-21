@@ -6,6 +6,7 @@ struct Playlist: Identifiable, Codable {
     var songIDs: [UUID] = []
     var createdAt: Date = Date()
     var isNonstop: Bool = true
+    var coverImageData: Data?
 
     var songCount: Int { songIDs.count }
 }

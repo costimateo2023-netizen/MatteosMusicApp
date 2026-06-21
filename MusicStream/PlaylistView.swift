@@ -76,7 +76,13 @@ struct PlaylistRowView: View {
     var body: some View {
         HStack(spacing: 14) {
             // Artwork grid or icon
-            if let art = artworkSong?.artwork {
+            if let data = playlist.coverImageData, let art = UIImage(data: data) {
+                Image(uiImage: art)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 64, height: 64)
+                    .cornerRadius(10)
+            } else if let art = artworkSong?.artwork {
                 Image(uiImage: art)
                     .resizable()
                     .scaledToFill()
