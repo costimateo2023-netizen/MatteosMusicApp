@@ -19,6 +19,12 @@ struct ContentView: View {
                         Label("Playlists", systemImage: "music.note.list")
                     }
                     .tag(1)
+
+                OnlineSearchView()
+                    .tabItem {
+                        Label("Entdecken", systemImage: "magnifyingglass")
+                    }
+                    .tag(2)
             }
             .accentColor(.msAccent)
 

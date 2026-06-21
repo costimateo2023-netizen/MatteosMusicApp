@@ -29,10 +29,12 @@ struct MBResponse: Codable {
 }
 
 struct iTunesResult: Codable {
+    let trackId: Int?
     let trackName: String?
     let artistName: String?
     let collectionName: String?
     let artworkUrl100: String?
+    let previewUrl: String?
     let primaryGenreName: String?
     let releaseDate: String?
     let trackNumber: Int?
@@ -164,6 +166,24 @@ class MetadataService {
             }
         }
         return nil
+    }
+
+    func searchTracks(query: String) async -> [iTunesResult] {
+        guard let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return [] }
+        let urlString = "https://itunes.apple.com/search?term=\(encoded)&media=music&entity=song&limit=20"
+        guard let url = URL(string: urlString) else { return [] }
+        do {
+            let (data, _) = try await session.data(from: url)
+            let response = try JSONDecoder().decode(iTunesResponse.self, from: data)
+            return response.results
+        } catch {
+            return []
+        }
+    }
+
+    func downloadPreview(url: String) async -> Data? {
+        guard let url = URL(string: url) else { return nil }
+        return try? await URLSession.shared.data(from: url).0
     }
 
     private func downloadArtwork(from releaseID: String) async -> Data? {

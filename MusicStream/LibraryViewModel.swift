@@ -50,6 +50,30 @@ class LibraryViewModel: ObservableObject {
         }
     }
 
+    func importOnlineTrack(title: String, artist: String, album: String, audioData: Data?, artworkData: Data?) {
+        let fileName = "\(title)-\(artist).m4a"
+            .replacingOccurrences(of: "[^a-zA-Z0-9]", with: "_", options: .regularExpression)
+        let localURL = persistence.musicDirectory.appendingPathComponent(fileName)
+        do {
+            if let data = audioData {
+                try data.write(to: localURL)
+            }
+            let song = Song(
+                title: title,
+                artist: artist,
+                album: album,
+                duration: 30,
+                fileURL: localURL,
+                artworkData: artworkData,
+                metadataFetched: true
+            )
+            self.songs.append(song)
+            self.persistence.saveSongs(self.songs)
+        } catch {
+            print("Online import error: \(error)")
+        }
+    }
+
     func fetchMetadataOnline(for song: Song) async {
         guard let s = songs.first(where: { $0.id == song.id }) else { return }
         var songToUpdate = s
