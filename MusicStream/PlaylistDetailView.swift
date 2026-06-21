@@ -78,7 +78,7 @@ struct PlaylistDetailView: View {
         .sheet(isPresented: $showAddSongs) {
             AddSongsView(playlist: playlist)
         }
-        .onChange(of: photoItem) { _, newItem in
+        .onChange(of: photoItem) { newItem in
             Task {
                 guard let data = try? await newItem?.loadTransferable(type: Data.self) else { return }
                 await MainActor.run {
