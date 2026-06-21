@@ -60,6 +60,22 @@ struct PipedStreamResponse: Codable {
     let error: String?
 }
 
+struct YTPlayerFormat: Codable {
+    let itag: Int?
+    let url: String?
+    let mimeType: String?
+    let bitrate: Int?
+}
+
+struct YTStreamingData: Codable {
+    let formats: [YTPlayerFormat]?
+    let adaptiveFormats: [YTPlayerFormat]?
+}
+
+struct YTPlayerResponse: Codable {
+    let streamingData: YTStreamingData?
+}
+
 class MetadataService {
     static let shared = MetadataService()
     private let session: URLSession = {
@@ -178,6 +194,39 @@ class MetadataService {
         }
     }
 
+    private func streamYouTubeDirect(videoId: String) async -> String? {
+        let browserUA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
+        guard let url = URL(string: "https://www.youtube.com/watch?v=\(videoId)") else { return nil }
+        var request = URLRequest(url: url)
+        request.setValue(browserUA, forHTTPHeaderField: "User-Agent")
+        guard let (data, _) = try? await URLSession.shared.data(for: request),
+              let html = String(data: data, encoding: .utf8) else { return nil }
+
+        guard let markerRange = html.range(of: "ytInitialPlayerResponse") else { return nil }
+        let afterMarker = html[markerRange.upperBound...]
+        guard let bracePos = afterMarker.firstIndex(of: "{"),
+              let jsonEnd = findMatchingBrace(from: afterMarker[bracePos...]) else { return nil }
+        let fullRange = bracePos..<jsonEnd
+        let jsonText = String(html[fullRange])
+        guard let jsonData = jsonText.data(using: .utf8),
+              let response = try? JSONDecoder().decode(YTPlayerResponse.self, from: jsonData),
+              let formats = response.streamingData?.adaptiveFormats ?? response.streamingData?.formats else { return nil }
+        let audioFormats = formats.filter { $0.mimeType?.contains("audio") ?? false }
+        return audioFormats
+            .sorted { ($0.bitrate ?? 0) > ($1.bitrate ?? 0) }
+            .first?.url
+    }
+
+    private func findMatchingBrace(from substring: Substring) -> String.Index? {
+        var depth = 0
+        for (i, c) in substring.enumerated() {
+            if c == "{" { depth += 1 }
+            else if c == "}" { depth -= 1 }
+            if depth == 0 { return substring.index(substring.startIndex, offsetBy: i + 1) }
+        }
+        return nil
+    }
+
     func searchOnline(query: String) async -> [OnlineMusicResult] {
         guard let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return [] }
         for instance in pipedInstances {
@@ -193,7 +242,7 @@ class MetadataService {
                 return url
             }
         }
-        return nil
+        return await streamYouTubeDirect(videoId: videoId)
     }
 
     func downloadAudio(from url: String) async -> Data? {
