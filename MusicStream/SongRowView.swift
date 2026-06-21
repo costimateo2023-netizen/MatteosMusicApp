@@ -48,6 +48,11 @@ struct SongRowView: View {
 
             Menu {
                 Button {
+                    Task { await libraryVM.fetchMetadataOnline(for: song) }
+                } label: {
+                    Label("Metadaten holen", systemImage: "cloud.fill")
+                }
+                Button {
                     libraryVM.deleteSong(song)
                 } label: {
                     Label("Lösch dieses Lied", systemImage: "trash")

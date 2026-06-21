@@ -40,9 +40,9 @@ struct LibraryView: View {
                                     }
                                     .contextMenu {
                                         Button {
-                                            openURL(rickRollURL)
+                                            Task { await libraryVM.fetchMetadataOnline(for: song) }
                                         } label: {
-                                            Label("Cloud", systemImage: "cloud.fill")
+                                            Label("Metadaten holen", systemImage: "cloud.fill")
                                         }
                                         Menu("Zu Playlist hinzufügen") {
                                             ForEach(libraryVM.playlists) { playlist in
