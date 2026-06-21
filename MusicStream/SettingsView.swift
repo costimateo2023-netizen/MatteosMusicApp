@@ -25,6 +25,7 @@ struct SettingsView: View {
                         Picker("App-Sprache", selection: $language) {
                             Text("Deutsch").tag("de")
                             Text("English").tag("en")
+                            Text("Română").tag("ro")
                         }
                         .pickerStyle(.menu)
                         Text("Starte die App neu, damit die Änderung wirkt.")
