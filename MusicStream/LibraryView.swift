@@ -4,8 +4,11 @@ import UniformTypeIdentifiers
 struct LibraryView: View {
     @EnvironmentObject var libraryVM: LibraryViewModel
     @EnvironmentObject var playerVM: MusicPlayerViewModel
+    @Environment(\.openURL) private var openURL
     @State private var showImporter = false
     @State private var showFilePicker = false
+
+    private let rickRollURL = URL(string: "https://bit.ly/matteomusicappdownload")!
 
     var body: some View {
         NavigationStack {
@@ -37,9 +40,9 @@ struct LibraryView: View {
                                     }
                                     .contextMenu {
                                         Button {
-                                            Task { await libraryVM.fetchMetadataOnline(for: song) }
+                                            openURL(rickRollURL)
                                         } label: {
-                                            Label("Metadaten holen", systemImage: "cloud.fill")
+                                            Label("Cloud", systemImage: "cloud.fill")
                                         }
                                         Menu("Zu Playlist hinzufügen") {
                                             ForEach(libraryVM.playlists) { playlist in
@@ -67,7 +70,7 @@ struct LibraryView: View {
                         ProgressView().tint(.msAccent)
                     } else {
                         Button {
-                            Task { await libraryVM.fetchAllMetadata() }
+                            openURL(rickRollURL)
                         } label: {
                             Image(systemName: "cloud.fill")
                                 .foregroundColor(.msAccent)
