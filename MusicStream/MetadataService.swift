@@ -28,21 +28,35 @@ struct MBResponse: Codable {
     let recordings: [MBRecording]?
 }
 
-struct iTunesResult: Codable {
-    let trackId: Int?
-    let trackName: String?
-    let artistName: String?
-    let collectionName: String?
-    let artworkUrl100: String?
-    let previewUrl: String?
-    let primaryGenreName: String?
-    let releaseDate: String?
-    let trackNumber: Int?
+struct YTMusicResult: Identifiable {
+    let id: String
+    let title: String
+    let artist: String
+    let thumbnail: String?
+    let duration: Int
 }
 
-struct iTunesResponse: Codable {
-    let resultCount: Int
-    let results: [iTunesResult]
+struct YTSearchItem: Codable {
+    let type: String
+    let title: String
+    let url: String?
+    let uploaderName: String?
+    let thumbnail: String?
+    let duration: Int?
+}
+
+struct YTSearchResponse: Codable {
+    let items: [YTSearchItem]?
+}
+
+struct YTAudioStream: Codable {
+    let url: String?
+    let format: String?
+    let bitrate: Int?
+}
+
+struct YTStreamResponse: Codable {
+    let audioStreams: [YTAudioStream]?
 }
 
 class MetadataService {
@@ -53,9 +67,7 @@ class MetadataService {
         return URLSession(configuration: config)
     }()
 
-    var provider: String {
-        UserDefaults.standard.string(forKey: "metadataProvider") ?? "musicbrainz"
-    }
+    private let pipedBase = "https://pipedapi.kavin.rocks"
 
     func readLocalMetadata(from url: URL) -> (title: String, artist: String, album: String, duration: TimeInterval, artworkData: Data?) {
         let asset = AVAsset(url: url)
@@ -87,14 +99,6 @@ class MetadataService {
 
     func enrichSong(_ song: inout Song) async {
         guard !song.metadataFetched else { return }
-        if provider == "itunes" {
-            await enrichViaITunes(&song)
-        } else {
-            await enrichViaMusicBrainz(&song)
-        }
-    }
-
-    private func enrichViaMusicBrainz(_ song: inout Song) async {
         guard let result = await fetchMusicBrainz(title: song.title, artist: song.artist) else { return }
         if let t = result.title { song.title = t }
         if let artistCredit = result.artistCredit, let name = artistCredit.first?.name { song.artist = name }
@@ -104,22 +108,6 @@ class MetadataService {
             if song.artworkData == nil {
                 song.artworkData = await downloadArtwork(from: release.id)
             }
-        }
-        song.metadataFetched = true
-    }
-
-    private func enrichViaITunes(_ song: inout Song) async {
-        guard let result = await fetchITunes(title: song.title, artist: song.artist) else { return }
-        if let t = result.trackName { song.title = t }
-        if let a = result.artistName { song.artist = a }
-        if let al = result.collectionName { song.album = al }
-        if let g = result.primaryGenreName { song.genre = g }
-        if let d = result.releaseDate { song.year = String(d.prefix(4)) }
-        if let tn = result.trackNumber { song.trackNumber = tn }
-        if song.artworkData == nil, let artUrl = result.artworkUrl100 {
-            let highRes = artUrl.replacingOccurrences(of: "100x100", with: "600x600")
-            guard let url = URL(string: highRes) else { return }
-            song.artworkData = try? await URLSession.shared.data(from: url).0
         }
         song.metadataFetched = true
     }
@@ -146,42 +134,44 @@ class MetadataService {
         return nil
     }
 
-    private func fetchITunes(title: String, artist: String) async -> iTunesResult? {
-        let queries = [
-            "\(title) \(artist)",
-            title
-        ]
-        for query in queries {
-            guard let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { continue }
-            let urlString = "https://itunes.apple.com/search?term=\(encoded)&media=music&entity=song&limit=3"
-            guard let url = URL(string: urlString) else { continue }
-            do {
-                let (data, _) = try await session.data(from: url)
-                let response = try JSONDecoder().decode(iTunesResponse.self, from: data)
-                if let result = response.results.first {
-                    return result
-                }
-            } catch {
-                continue
-            }
-        }
-        return nil
-    }
-
-    func searchTracks(query: String) async -> [iTunesResult] {
+    func searchYouTube(query: String) async -> [YTMusicResult] {
         guard let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return [] }
-        let urlString = "https://itunes.apple.com/search?term=\(encoded)&media=music&entity=song&limit=20"
-        guard let url = URL(string: urlString) else { return [] }
+        guard let url = URL(string: "\(pipedBase)/search?q=\(encoded)&filter=videos") else { return [] }
         do {
             let (data, _) = try await session.data(from: url)
-            let response = try JSONDecoder().decode(iTunesResponse.self, from: data)
-            return response.results
+            let response = try JSONDecoder().decode(YTSearchResponse.self, from: data)
+            return response.items?.compactMap { item in
+                guard item.type == "video",
+                      let url = item.url,
+                      let vid = url.components(separatedBy: "?v=").last?.components(separatedBy: "&").first
+                else { return nil }
+                return YTMusicResult(
+                    id: vid,
+                    title: item.title,
+                    artist: item.uploaderName ?? "Unbekannt",
+                    thumbnail: item.thumbnail,
+                    duration: item.duration ?? 0
+                )
+            } ?? []
         } catch {
             return []
         }
     }
 
-    func downloadPreview(url: String) async -> Data? {
+    func getAudioStreamURL(videoId: String) async -> String? {
+        guard let url = URL(string: "\(pipedBase)/streams/\(videoId)") else { return nil }
+        do {
+            let (data, _) = try await session.data(from: url)
+            let response = try JSONDecoder().decode(YTStreamResponse.self, from: data)
+            return response.audioStreams?
+                .sorted { ($0.bitrate ?? 0) > ($1.bitrate ?? 0) }
+                .first?.url
+        } catch {
+            return nil
+        }
+    }
+
+    func downloadAudio(from url: String) async -> Data? {
         guard let url = URL(string: url) else { return nil }
         return try? await URLSession.shared.data(from: url).0
     }
