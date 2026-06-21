@@ -197,13 +197,13 @@ class MetadataService {
             let response = try JSONDecoder().decode(PipedStreamResponse.self, from: data)
             if response.error != nil { return nil }
             if let audioUrl = response.audioStreams?
-                .sorted { $0.bitrate ?? 0 > $1.bitrate ?? 0 }
+                .sorted(by: { a, b in (a.bitrate ?? 0) > (b.bitrate ?? 0) })
                 .first?.url {
                 return audioUrl
             }
             return response.videoStreams?
                 .filter { $0.videoOnly != true && $0.url?.hasPrefix("https") == true }
-                .sorted { $0.bitrate ?? 0 > $1.bitrate ?? 0 }
+                .sorted(by: { a, b in (a.bitrate ?? 0) > (b.bitrate ?? 0) })
                 .first?.url
         } catch {
             return nil
