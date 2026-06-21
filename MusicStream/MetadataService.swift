@@ -2,29 +2,44 @@ import Foundation
 import AVFoundation
 import UIKit
 
-struct iTunesResult: Codable {
-    let trackName: String?
-    let artistName: String?
-    let collectionName: String?
-    let artworkUrl100: String?
-    let primaryGenreName: String?
-    let releaseDate: String?
-    let trackNumber: Int?
+struct MBArtistCredit: Codable {
+    let name: String
 }
 
-struct iTunesResponse: Codable {
-    let resultCount: Int
-    let results: [iTunesResult]
+struct MBRelease: Codable {
+    let id: String
+    let title: String?
+    let date: String?
+}
+
+struct MBRecording: Codable {
+    let id: String
+    let title: String?
+    let artistCredit: [MBArtistCredit]?
+    let releases: [MBRelease]?
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, releases
+        case artistCredit = "artist-credit"
+    }
+}
+
+struct MBResponse: Codable {
+    let recordings: [MBRecording]?
 }
 
 class MetadataService {
     static let shared = MetadataService()
+    private let session: URLSession = {
+        var config = URLSessionConfiguration.default
+        config.httpAdditionalHeaders = ["User-Agent": "MatteosMusicApp/1.0 ( costimateo2023@netizen.com )"]
+        return URLSession(configuration: config)
+    }()
 
-    // Read embedded metadata from local file (offline)
     func readLocalMetadata(from url: URL) -> (title: String, artist: String, album: String, duration: TimeInterval, artworkData: Data?) {
         let asset = AVAsset(url: url)
         var title = url.deletingPathExtension().lastPathComponent
-        var artist = "Unbekannter Künstler"
+        var artist = "Unbekannter K\u00fcnstler"
         var album = "Unbekanntes Album"
         var artworkData: Data? = nil
 
@@ -49,22 +64,20 @@ class MetadataService {
         return (title, artist, album, duration, artworkData)
     }
 
-    // Fetch extended metadata from iTunes Search API (requires internet)
-    func fetchOnlineMetadata(title: String, artist: String) async -> iTunesResult? {
-        // Try title + artist first, then fall back to title only
+    func fetchOnlineMetadata(title: String, artist: String) async -> MBRecording? {
         let queries = [
-            "\(title) \(artist)",
-            title
+            "recording:\"\(title)\" AND artist:\"\(artist)\"",
+            "recording:\"\(title)\""
         ]
         for query in queries {
             guard let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { continue }
-            let urlString = "https://itunes.apple.com/search?term=\(encoded)&media=music&entity=song&limit=3"
+            let urlString = "https://musicbrainz.org/ws/2/recording?query=\(encoded)&fmt=json&limit=3"
             guard let url = URL(string: urlString) else { continue }
             do {
-                let (data, _) = try await URLSession.shared.data(from: url)
-                let response = try JSONDecoder().decode(iTunesResponse.self, from: data)
-                if let result = response.results.first {
-                    return result
+                let (data, _) = try await session.data(from: url)
+                let response = try JSONDecoder().decode(MBResponse.self, from: data)
+                if let recording = response.recordings?.first {
+                    return recording
                 }
             } catch {
                 continue
@@ -73,32 +86,36 @@ class MetadataService {
         return nil
     }
 
-    // Download artwork from URL
-    func downloadArtwork(from urlString: String) async -> Data? {
-        let highRes = urlString.replacingOccurrences(of: "100x100", with: "600x600")
-        guard let url = URL(string: highRes) else { return nil }
-        do {
-            let (data, _) = try await URLSession.shared.data(from: url)
-            return data
-        } catch {
-            return nil
+    func downloadArtwork(from releaseID: String) async -> Data? {
+        let urls = [
+            "https://coverartarchive.org/release/\(releaseID)/front",
+            "https://coverartarchive.org/release/\(releaseID)/front-250"
+        ]
+        for urlString in urls {
+            guard let url = URL(string: urlString) else { continue }
+            do {
+                let (data, _) = try await session.data(from: url)
+                if !data.isEmpty { return data }
+            } catch {
+                continue
+            }
         }
+        return nil
     }
 
-    // Full online enrichment
     func enrichSong(_ song: inout Song) async {
         guard !song.metadataFetched else { return }
         guard let result = await fetchOnlineMetadata(title: song.title, artist: song.artist) else { return }
 
-        if let t = result.trackName { song.title = t }
-        if let a = result.artistName { song.artist = a }
-        if let al = result.collectionName { song.album = al }
-        if let g = result.primaryGenreName { song.genre = g }
-        if let d = result.releaseDate { song.year = String(d.prefix(4)) }
-        if let tn = result.trackNumber { song.trackNumber = tn }
+        if let t = result.title { song.title = t }
+        if let artistCredit = result.artistCredit, let name = artistCredit.first?.name { song.artist = name }
+        if let release = result.releases?.first {
+            if let al = release.title { song.album = al }
+            if let d = release.date { song.year = String(d.prefix(4)) }
 
-        if song.artworkData == nil, let artUrl = result.artworkUrl100 {
-            song.artworkData = await downloadArtwork(from: artUrl)
+            if song.artworkData == nil {
+                song.artworkData = await downloadArtwork(from: release.id)
+            }
         }
         song.metadataFetched = true
     }
